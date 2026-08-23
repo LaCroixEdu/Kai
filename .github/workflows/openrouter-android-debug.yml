@@ -41,10 +41,20 @@ jobs:
       - name: Install Android SDK components
         run: |
           sdkmanager --channel=3 "cmdline-tools;latest"
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest-2/bin/sdkmanager" --channel=3 \
+          preview_sdkmanager="$(
+            find "$ANDROID_SDK_ROOT/cmdline-tools" -type f -path '*/bin/sdkmanager' -printf '%T@ %p\n' \
+              | sort -nr \
+              | head -n 1 \
+              | cut -d' ' -f2-
+          )"
+          if [ -z "$preview_sdkmanager" ]; then
+            echo "Unable to locate the installed Android SDK manager" >&2
+            exit 1
+          fi
+          "$preview_sdkmanager" --channel=3 \
             "platforms;android-37" "build-tools;36.0.0" "ndk;29.0.14206865"
 
-      - name: Run desktop tests
+      - name: Run shared Kotlin unit tests (no desktop artifact)
         run: ./gradlew :composeApp:desktopTest --no-daemon --stacktrace
 
       - name: Build FOSS debug APK
