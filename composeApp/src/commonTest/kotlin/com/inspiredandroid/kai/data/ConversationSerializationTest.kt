@@ -8,6 +8,7 @@ import com.inspiredandroid.kai.ui.chat.toGroqMessageDto
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
@@ -467,6 +468,32 @@ class ConversationSerializationTest {
             requestMessage,
         ).jsonObject
         assertEquals(expectedDetails, encodedRequest["reasoning_details"])
+    }
+
+    @Test
+    fun `OpenRouter reasoning origin survives conversation persistence`() {
+        val conversation = json.decodeFromString<Conversation>(
+            """
+            {
+              "id": "conv-openrouter-origin",
+              "messages": [
+                {
+                  "id": "assistant-tool-call",
+                  "role": "assistant",
+                  "content": "",
+                  "reasoningModelId": "x-ai/grok-4.6"
+                }
+              ],
+              "createdAt": 1,
+              "updatedAt": 2
+            }
+            """.trimIndent(),
+        )
+
+        val encoded = json.encodeToJsonElement(Conversation.serializer(), conversation).jsonObject
+        val encodedMessage = encoded["messages"]!!.jsonArray.single().jsonObject
+
+        assertEquals(JsonPrimitive("x-ai/grok-4.6"), encodedMessage["reasoningModelId"])
     }
 
     @Test

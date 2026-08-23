@@ -1,6 +1,8 @@
 package com.inspiredandroid.kai.ui.chat
 
 import com.inspiredandroid.kai.data.ReasoningRequestMode
+import com.inspiredandroid.kai.data.Service
+import com.inspiredandroid.kai.data.providers.buildOpenAIMessages
 import com.inspiredandroid.kai.network.dtos.openaicompatible.OpenAICompatibleChatRequestDto
 import com.inspiredandroid.kai.network.dtos.openaicompatible.OpenAICompatibleChatResponseDto
 import kotlinx.collections.immutable.persistentListOf
@@ -103,5 +105,29 @@ class OpenRouterReasoningDetailsRoundTripTest {
         ).jsonObject
 
         assertFalse("reasoning_details" in encoded)
+    }
+
+    @Test
+    fun `OpenRouter drops encrypted reasoning after model switch`() {
+        val assistant = decodeAssistantHistory().copy(reasoningModelId = "x-ai/grok-4.6")
+        val toolResult = History(
+            role = History.Role.TOOL,
+            content = "{\"year\":2026}",
+            toolCallId = "call_1",
+            toolName = "get_local_time",
+        )
+
+        val encodedAssistant = buildOpenAIMessages(
+            service = Service.OpenRouter,
+            messages = listOf(assistant, toolResult),
+            systemPrompt = null,
+            modelId = "google/gemini-3.7-flash",
+            declaredToolNames = setOf("get_local_time"),
+        ).first().let {
+            json.encodeToJsonElement(OpenAICompatibleChatRequestDto.Message.serializer(), it).jsonObject
+        }
+
+        assertFalse("reasoning_details" in encodedAssistant)
+        assertEquals("human-readable trace", encodedAssistant["reasoning_content"]?.toString()?.trim('"'))
     }
 }

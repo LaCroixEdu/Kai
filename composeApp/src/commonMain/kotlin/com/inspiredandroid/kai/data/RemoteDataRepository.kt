@@ -207,6 +207,7 @@ private data class LoopChatResult(
     val textContent: String,
     val reasoningContent: String? = null,
     val reasoningDetails: JsonArray? = null,
+    val reasoningModelId: String? = null,
     val isThinkingContent: Boolean = false,
     val toolCalls: List<ToolCallInfo>,
 )
@@ -232,6 +233,7 @@ internal fun History.toConversationMessage(): Conversation.Message = Conversatio
     isThinking = isThinking,
     reasoningContent = reasoningContent,
     reasoningDetails = reasoningDetails,
+    reasoningModelId = reasoningModelId,
     toolCallId = toolCallId,
     toolName = toolName,
     toolCalls = toolCalls?.map { call ->
@@ -276,6 +278,7 @@ internal fun Conversation.Message.toHistory(): History {
         isThinking = isThinking,
         reasoningContent = reasoningContent,
         reasoningDetails = reasoningDetails,
+        reasoningModelId = reasoningModelId,
     )
 }
 
@@ -1141,6 +1144,9 @@ class RemoteDataRepository(
                     textContent = textContent,
                     reasoningContent = message.reasoningTraceFor(textContent),
                     reasoningDetails = message.reasoningDetails,
+                    reasoningModelId = credentials.modelId.takeIf {
+                        service == Service.OpenRouter && message.reasoningDetails != null
+                    },
                     isThinkingContent = message.isContentFromReasoning,
                     toolCalls = calls,
                 )
@@ -1273,6 +1279,7 @@ class RemoteDataRepository(
                             toolCalls = result.toolCalls.toImmutableList(),
                             reasoningContent = result.reasoningContent,
                             reasoningDetails = result.reasoningDetails,
+                            reasoningModelId = result.reasoningModelId,
                         ),
                     )
                 }

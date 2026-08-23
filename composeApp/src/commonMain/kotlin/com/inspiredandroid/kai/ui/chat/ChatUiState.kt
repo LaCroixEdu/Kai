@@ -114,6 +114,8 @@ data class History(
     val reasoningContent: String? = null,
     // Opaque OpenRouter reasoning items, including provider thought signatures.
     val reasoningDetails: JsonArray? = null,
+    // Requested OpenRouter model that produced [reasoningDetails].
+    val reasoningModelId: String? = null,
 ) {
     enum class Role {
         USER,
@@ -137,6 +139,7 @@ data class ToolCallInfo(
 fun History.toGroqMessageDto(
     reasoningMode: ReasoningRequestMode = ReasoningRequestMode.NONE,
     supportsImages: Boolean = true,
+    targetModelId: String? = null,
 ): OpenAICompatibleChatRequestDto.Message = when (role) {
     History.Role.USER -> {
         val split = attachments.splitForMessage()
@@ -194,7 +197,12 @@ fun History.toGroqMessageDto(
                 ReasoningRequestMode.NONE -> null
             }
             val emittedReasoningDetails = when (reasoningMode) {
-                ReasoningRequestMode.REASONING_CONTENT_AND_DETAILS -> reasoningDetails
+                ReasoningRequestMode.REASONING_CONTENT_AND_DETAILS -> reasoningDetails?.takeIf {
+                    // OpenRouter encrypted/compacted reasoning is endpoint-bound. Calls made
+                    // outside the model-aware request builder keep legacy conversion behavior;
+                    // real requests only replay blocks to the requested model that created them.
+                    targetModelId == null || reasoningModelId == targetModelId
+                }
                 ReasoningRequestMode.NONE,
                 ReasoningRequestMode.REASONING_CONTENT,
                 -> null

@@ -57,6 +57,9 @@ data class Conversation(
         // OpenRouter reasoning items are opaque and must survive app restarts unchanged.
         @EncodeDefault(EncodeDefault.Mode.NEVER)
         val reasoningDetails: JsonArray? = null,
+        // Encrypted OpenRouter reasoning can only be replayed to the model that produced it.
+        @EncodeDefault(EncodeDefault.Mode.NEVER)
+        val reasoningModelId: String? = null,
         // Assistant tool-call envelopes and their matching tool results are persisted so a
         // restored conversation can still produce a valid OpenAI-compatible message sequence.
         @EncodeDefault(EncodeDefault.Mode.NEVER)

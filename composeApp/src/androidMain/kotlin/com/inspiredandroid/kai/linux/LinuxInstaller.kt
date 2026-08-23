@@ -36,6 +36,11 @@ class LinuxInstaller(private val paths: LinuxPaths) {
      */
     suspend fun install(distro: LinuxDistro, onStep: (InstallStep) -> Unit): InstallMarker {
         val spec = DistroSpec.of(distro)
+
+        // Wipe any partial/previous install before creating the layout for this run. Doing
+        // these in the opposite order deletes tmpDir immediately before ProotLauncher binds
+        // it as /tmp and exports it as PROOT_TMP_DIR, breaking every clean installation.
+        paths.deleteInstall()
         paths.ensureLayout()
         val proot = File(paths.prootPath)
         check(proot.exists()) {
@@ -43,11 +48,6 @@ class LinuxInstaller(private val paths: LinuxPaths) {
                 (File(paths.nativeLibDir).listFiles()?.map { it.name } ?: "empty")
         }
         paths.copyLibtalloc()
-
-        // Wipe any partial/previous install so a retry after a failed package
-        // index update (or a distro change) always re-extracts cleanly — and so
-        // nothing reading the marker mid-install sees the outgoing install's.
-        paths.deleteInstall()
 
         val archive = paths.archiveFile(spec)
         try {
