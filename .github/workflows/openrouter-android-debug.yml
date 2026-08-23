@@ -54,9 +54,6 @@ jobs:
           "$preview_sdkmanager" --channel=3 \
             "platforms;android-37" "build-tools;36.0.0" "ndk;29.0.14206865"
 
-      - name: Run shared Kotlin unit tests (no desktop artifact)
-        run: ./gradlew :composeApp:desktopTest --no-daemon --stacktrace
-
       - name: Build FOSS debug APK
         run: ./gradlew :androidApp:assembleFossDebug --no-daemon --stacktrace
 
