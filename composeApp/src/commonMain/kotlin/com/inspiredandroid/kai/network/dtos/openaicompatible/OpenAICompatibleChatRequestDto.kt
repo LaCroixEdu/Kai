@@ -2,6 +2,7 @@ package com.inspiredandroid.kai.network.dtos.openaicompatible
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 
 @Serializable
@@ -23,6 +24,10 @@ data class OpenAICompatibleChatRequestDto(
         // Service.reasoningRequestMode.
         @SerialName("reasoning_content")
         val reasoningContent: String? = null,
+        // OpenRouter requires the original opaque items (including provider
+        // signatures) to continue reasoning across tool calls.
+        @SerialName("reasoning_details")
+        val reasoningDetails: JsonArray? = null,
     )
 
     @Serializable

@@ -122,6 +122,7 @@ internal val LOCAL_TOOL_ALLOWLIST = setOf(
 private data class LoopChatResult(
     val textContent: String,
     val reasoningContent: String? = null,
+    val reasoningDetails: JsonArray? = null,
     val isThinkingContent: Boolean = false,
     val toolCalls: List<ToolCallInfo>,
 )
@@ -994,6 +995,7 @@ class RemoteDataRepository(
                 return LoopChatResult(
                     textContent = textContent,
                     reasoningContent = message.reasoningTraceFor(textContent),
+                    reasoningDetails = message.reasoningDetails,
                     isThinkingContent = message.isContentFromReasoning,
                     toolCalls = calls,
                 )
@@ -1125,6 +1127,7 @@ class RemoteDataRepository(
                             isThinking = result.isThinkingContent,
                             toolCalls = result.toolCalls.toImmutableList(),
                             reasoningContent = result.reasoningContent,
+                            reasoningDetails = result.reasoningDetails,
                         ),
                     )
                 }

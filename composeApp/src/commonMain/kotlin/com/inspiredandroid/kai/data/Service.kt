@@ -51,7 +51,7 @@ data class ModelDefinition(
 )
 
 /**
- * How a service handles a `reasoning_content` field on outgoing assistant messages.
+ * How a service handles reasoning fields on outgoing assistant messages.
  *
  * Default is [NONE] so any new provider is safe by default — Groq and Cerebras
  * return HTTP 400 when they see this field, so opt-in is the correct posture.
@@ -65,14 +65,20 @@ enum class ReasoningRequestMode {
      * Echo `reasoning_content` back on assistant turns that previously produced
      * `tool_calls`. Truly required by Z.AI Coding Plan, OpenCode Zen (DeepSeek
      * route), and Moonshot kimi-k2.6 with `thinking.keep="all"`. Accepted as a
-     * documented field by Fireworks, Z.AI standard, and OpenRouter (as an alias
-     * for `reasoning`). Tolerated as an unknown field by LongCat, Venice, MiniMax.
+     * documented field by Fireworks and Z.AI standard. Tolerated as an unknown
+     * field by LongCat, Venice, MiniMax.
      *
      * See `docs/features/reasoning.md` for the authoritative per-provider matrix
      * and known fidelity gaps (`reasoning_details`, `<think>`-in-content, paired
      * flags like `clear_thinking` and `reasoning_history`).
      */
     REASONING_CONTENT,
+
+    /**
+     * Echo both `reasoning_content` and OpenRouter's opaque `reasoning_details[]`.
+     * The latter may contain provider-specific signatures and must not be modified.
+     */
+    REASONING_CONTENT_AND_DETAILS,
 }
 
 sealed class Service(
@@ -167,7 +173,7 @@ sealed class Service(
         apiKeyUrl = "https://openrouter.ai/settings/keys",
         apiKeyUrlDisplay = "openrouter.ai/settings/keys",
         supportsPdf = true,
-        reasoningRequestMode = ReasoningRequestMode.REASONING_CONTENT,
+        reasoningRequestMode = ReasoningRequestMode.REASONING_CONTENT_AND_DETAILS,
     )
 
     data object Nvidia : Service(

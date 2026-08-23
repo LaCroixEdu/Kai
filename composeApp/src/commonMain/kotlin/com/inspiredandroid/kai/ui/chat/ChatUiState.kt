@@ -112,6 +112,8 @@ data class History(
     // Preserved from a tool-call assistant turn so it can be round-tripped
     // back to providers (e.g. DeepSeek) that require it on the next request.
     val reasoningContent: String? = null,
+    // Opaque OpenRouter reasoning items, including provider thought signatures.
+    val reasoningDetails: JsonArray? = null,
 ) {
     enum class Role {
         USER,
@@ -185,8 +187,17 @@ fun History.toGroqMessageDto(
             // be carried by reasoning_content instead.
             val realContent = if (isThinking || content.isEmpty()) null else JsonPrimitive(content)
             val emittedReasoning = when (reasoningMode) {
-                ReasoningRequestMode.REASONING_CONTENT -> reasoningContent
+                ReasoningRequestMode.REASONING_CONTENT,
+                ReasoningRequestMode.REASONING_CONTENT_AND_DETAILS,
+                -> reasoningContent
+
                 ReasoningRequestMode.NONE -> null
+            }
+            val emittedReasoningDetails = when (reasoningMode) {
+                ReasoningRequestMode.REASONING_CONTENT_AND_DETAILS -> reasoningDetails
+                ReasoningRequestMode.NONE,
+                ReasoningRequestMode.REASONING_CONTENT,
+                -> null
             }
             OpenAICompatibleChatRequestDto.Message(
                 role = "assistant",
@@ -201,6 +212,7 @@ fun History.toGroqMessageDto(
                     )
                 },
                 reasoningContent = emittedReasoning,
+                reasoningDetails = emittedReasoningDetails,
             )
         } else {
             OpenAICompatibleChatRequestDto.Message(role = "assistant", content = JsonPrimitive(content))

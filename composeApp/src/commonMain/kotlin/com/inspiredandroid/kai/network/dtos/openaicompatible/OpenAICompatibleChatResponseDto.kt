@@ -60,6 +60,8 @@ data class OpenAICompatibleChatResponseDto(
             @SerialName("reasoning_content")
             val reasoningContent: String? = null,
             val reasoning: String? = null,
+            @SerialName("reasoning_details")
+            val reasoningDetails: JsonArray? = null,
             @SerialName("tool_calls")
             val toolCalls: List<ToolCall>? = null,
         ) {
