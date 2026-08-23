@@ -1,8 +1,15 @@
 package com.inspiredandroid.kai.data
 
 import com.inspiredandroid.kai.TerminalLine
+import com.inspiredandroid.kai.network.dtos.openaicompatible.OpenAICompatibleChatRequestDto
+import com.inspiredandroid.kai.ui.chat.History
+import com.inspiredandroid.kai.ui.chat.ToolCallInfo
+import com.inspiredandroid.kai.ui.chat.toGroqMessageDto
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -71,6 +78,10 @@ class ConversationSerializationTest {
         assertEquals("msg-1", message.id)
         assertEquals("assistant", message.role)
         assertEquals("Hello there", message.content)
+        assertNull(message.toolCallId)
+        assertNull(message.toolName)
+        assertNull(message.toolCalls)
+        assertNull(message.reasoningDetails)
         assertNull(message.mimeType)
         assertNull(message.data)
     }
@@ -391,6 +402,71 @@ class ConversationSerializationTest {
         assertEquals("legacybase64", m.data)
         assertEquals("old.jpg", m.fileName)
         assertEquals(0, m.attachments.size)
+    }
+
+    @Test
+    fun `OpenRouter tool call envelope survives conversation persistence`() {
+        val expectedDetails = json.parseToJsonElement(
+            """
+            [
+              {
+                "type": "reasoning.encrypted",
+                "format": "provider-specific",
+                "signature": "opaque-signature"
+              },
+              {
+                "type": "reasoning.text",
+                "text": "opaque-text-fragment"
+              }
+            ]
+            """.trimIndent(),
+        ).jsonArray
+        val histories = listOf(
+            History(
+                id = "assistant-tool-call",
+                role = History.Role.ASSISTANT,
+                content = "",
+                isThinking = true,
+                toolCalls = persistentListOf(
+                    ToolCallInfo(id = "call_1", name = "get_local_time", arguments = "{}"),
+                ),
+                reasoningContent = "human-readable trace",
+                reasoningDetails = expectedDetails,
+            ),
+            History(
+                id = "tool-result",
+                role = History.Role.TOOL,
+                content = "12:34",
+                toolCallId = "call_1",
+                toolName = "get_local_time",
+            ),
+        )
+        val conversation = Conversation(
+            id = "conv-openrouter",
+            messages = histories.map { it.toConversationMessage() },
+            createdAt = 1L,
+            updatedAt = 2L,
+        )
+
+        val restored = json.decodeFromString<Conversation>(json.encodeToString(conversation))
+            .messages
+            .map { it.toHistory() }
+        val restoredAssistant = restored[0]
+        val restoredTool = restored[1]
+
+        assertEquals(expectedDetails, restoredAssistant.reasoningDetails)
+        assertEquals(histories[0].toolCalls, restoredAssistant.toolCalls)
+        assertEquals("call_1", restoredTool.toolCallId)
+        assertEquals("get_local_time", restoredTool.toolName)
+
+        val requestMessage = restoredAssistant.toGroqMessageDto(
+            ReasoningRequestMode.REASONING_CONTENT_AND_DETAILS,
+        )
+        val encodedRequest = json.encodeToJsonElement(
+            OpenAICompatibleChatRequestDto.Message.serializer(),
+            requestMessage,
+        ).jsonObject
+        assertEquals(expectedDetails, encodedRequest["reasoning_details"])
     }
 
     @Test
