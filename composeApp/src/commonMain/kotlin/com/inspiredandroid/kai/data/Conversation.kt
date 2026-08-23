@@ -5,6 +5,7 @@ import com.inspiredandroid.kai.TerminalLine
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 
 /**
  * A single file attachment on a chat message. Used both in-memory on `History` and
@@ -34,6 +35,13 @@ data class Conversation(
         const val TYPE_INTERACTIVE = "interactive"
     }
 
+    @Serializable
+    data class ToolCall(
+        val id: String,
+        val name: String,
+        val arguments: String,
+    )
+
     @OptIn(ExperimentalSerializationApi::class)
     @Serializable
     data class Message(
@@ -46,6 +54,17 @@ data class Conversation(
         // Most messages have no reasoning trace; skip the null to keep the persisted blob lean.
         @EncodeDefault(EncodeDefault.Mode.NEVER)
         val reasoningContent: String? = null,
+        // OpenRouter reasoning items are opaque and must survive app restarts unchanged.
+        @EncodeDefault(EncodeDefault.Mode.NEVER)
+        val reasoningDetails: JsonArray? = null,
+        // Assistant tool-call envelopes and their matching tool results are persisted so a
+        // restored conversation can still produce a valid OpenAI-compatible message sequence.
+        @EncodeDefault(EncodeDefault.Mode.NEVER)
+        val toolCallId: String? = null,
+        @EncodeDefault(EncodeDefault.Mode.NEVER)
+        val toolName: String? = null,
+        @EncodeDefault(EncodeDefault.Mode.NEVER)
+        val toolCalls: List<ToolCall>? = null,
         // Legacy single-file fields — retained for reading old persisted conversations.
         // New code writes only `attachments`; these remain null on newly saved messages.
         val mimeType: String? = null,

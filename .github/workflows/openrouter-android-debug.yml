@@ -42,7 +42,10 @@ jobs:
         run: ./gradlew :composeApp:desktopTest --no-daemon --stacktrace
 
       - name: Install Android SDK components
-        run: sdkmanager --channel=3 "platforms;android-37" "build-tools;36.0.0" "ndk;29.0.14206865"
+        run: |
+          sdkmanager --channel=3 "cmdline-tools;latest"
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --channel=3 \
+            "platforms;android-37" "build-tools;36.0.0" "ndk;29.0.14206865"
 
       - name: Build FOSS debug APK
         run: ./gradlew :androidApp:assembleFossDebug --no-daemon --stacktrace

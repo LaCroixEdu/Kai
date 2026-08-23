@@ -134,6 +134,67 @@ private data class AssistantTurn(
     val reasoningContent: String? = null,
 )
 
+internal fun History.toConversationMessage(): Conversation.Message = Conversation.Message(
+    id = id,
+    role = when (role) {
+        History.Role.USER -> "user"
+        History.Role.ASSISTANT -> "assistant"
+        History.Role.TOOL -> "tool"
+        History.Role.TOOL_EXECUTING -> "tool"
+    },
+    content = content,
+    attachments = attachments,
+    uiSubmission = uiSubmission,
+    isThinking = isThinking,
+    reasoningContent = reasoningContent,
+    reasoningDetails = reasoningDetails,
+    toolCallId = toolCallId,
+    toolName = toolName,
+    toolCalls = toolCalls?.map { call ->
+        Conversation.ToolCall(
+            id = call.id,
+            name = call.name,
+            arguments = call.arguments,
+        )
+    },
+)
+
+internal fun Conversation.Message.toHistory(): History {
+    // Prefer the modern `attachments` field. Fall back to the legacy single-file
+    // fields for conversations saved before multi-attachment support.
+    val restoredAttachments = when {
+        attachments.isNotEmpty() -> attachments.toImmutableList()
+
+        data != null && mimeType != null ->
+            persistentListOf(Attachment(data = data, mimeType = mimeType, fileName = fileName))
+
+        else -> persistentListOf()
+    }
+    return History(
+        id = id,
+        role = when (role) {
+            "user" -> History.Role.USER
+            "tool" -> History.Role.TOOL
+            else -> History.Role.ASSISTANT
+        },
+        content = content,
+        attachments = restoredAttachments,
+        toolCallId = toolCallId,
+        toolName = toolName,
+        toolCalls = toolCalls?.map { call ->
+            ToolCallInfo(
+                id = call.id,
+                name = call.name,
+                arguments = call.arguments,
+            )
+        }?.toImmutableList(),
+        uiSubmission = uiSubmission,
+        isThinking = isThinking,
+        reasoningContent = reasoningContent,
+        reasoningDetails = reasoningDetails,
+    )
+}
+
 private enum class BailoutReason { LIMIT_REACHED, REPEATING }
 
 private fun bailoutPrompt(reason: BailoutReason): String = when (reason) {
@@ -1471,22 +1532,7 @@ class RemoteDataRepository(
             id = conversationId,
             messages = history
                 .filter { it.role != History.Role.TOOL_EXECUTING }
-                .map { h ->
-                    Conversation.Message(
-                        id = h.id,
-                        role = when (h.role) {
-                            History.Role.USER -> "user"
-                            History.Role.ASSISTANT -> "assistant"
-                            History.Role.TOOL -> "tool"
-                            History.Role.TOOL_EXECUTING -> "tool" // Should not happen due to filter
-                        },
-                        content = h.content,
-                        attachments = h.attachments,
-                        uiSubmission = h.uiSubmission,
-                        isThinking = h.isThinking,
-                        reasoningContent = h.reasoningContent,
-                    )
-                },
+                .map { it.toConversationMessage() },
             createdAt = existingConversation?.createdAt ?: now,
             updatedAt = now,
             title = title,
@@ -1541,31 +1587,7 @@ class RemoteDataRepository(
         val conversation = savedConversations.value.find { it.id == id } ?: return
 
         setCurrentConversationId(id)
-        chatHistory.value = conversation.messages.map { m ->
-            // Prefer the modern `attachments` field. Fall back to the legacy single-file
-            // fields for conversations saved before multi-attachment support.
-            val attachments = when {
-                m.attachments.isNotEmpty() -> m.attachments.toImmutableList()
-
-                m.data != null && m.mimeType != null ->
-                    persistentListOf(Attachment(data = m.data, mimeType = m.mimeType, fileName = m.fileName))
-
-                else -> persistentListOf()
-            }
-            History(
-                id = m.id,
-                role = when (m.role) {
-                    "user" -> History.Role.USER
-                    "tool" -> History.Role.TOOL
-                    else -> History.Role.ASSISTANT
-                },
-                content = m.content,
-                attachments = attachments,
-                uiSubmission = m.uiSubmission,
-                isThinking = m.isThinking,
-                reasoningContent = m.reasoningContent,
-            )
-        }
+        chatHistory.value = conversation.messages.map { it.toHistory() }
     }
 
     override suspend fun deleteConversation(id: String) {

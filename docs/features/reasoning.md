@@ -1,6 +1,6 @@
 # Reasoning Content Handling
 
-**Last verified:** 2026-07-20
+**Last verified:** 2026-08-23
 
 Reasoning-capable models (DeepSeek R1, GLM thinking, Qwen thinking, Kimi thinking, Magistral, gpt-oss, etc.) return their chain-of-thought separately from the final answer. Kai handles reasoning along two axes: **wire-side** (whether to echo the trace back to the provider on the next request) and **display-side** (whether to show it to the user in the chat UI). When a turn also contains `tool_calls`, some providers require the chain-of-thought to be echoed back to preserve reasoning continuity across the tool round-trip — and others strictly reject the same field. This page documents what each provider does, what Kai sends, and where we trade fidelity for simplicity.
 
@@ -26,7 +26,7 @@ Behavior of each provider when an `assistant`-role message with prior `tool_call
 | Moonshot / Kimi | **Required for `kimi-k2.6` with `thinking.keep="all"`** | `reasoning_content` | Only that specific model + flag combination requires the echo. Other Kimi thinking models accept it as a no-op. Kai does not currently set `thinking.keep` | [platform.kimi.com/docs/api/chat](https://platform.kimi.com/docs/api/chat) |
 | Fireworks AI | **Accepted (documented)** | `reasoning_content` | Officially supported field on `ChatMessage`. Full preservation also requires `reasoning_history: "preserved"` on the request — Kai does not set this | [docs.fireworks.ai/api-reference/post-chatcompletions](https://docs.fireworks.ai/api-reference/post-chatcompletions) |
 | Z.AI standard | **Accepted (documented, inert without flag)** | `reasoning_content` | Preserved Thinking is opt-in on `/api/paas/v4`; without `clear_thinking: false` (which Kai does not send) the echo is ignored | [docs.z.ai/guides/capabilities/thinking-mode](https://docs.z.ai/guides/capabilities/thinking-mode) |
-| OpenRouter | **Accepted (alias)** | Canonical `reasoning`; `reasoning_content` is a documented alias. Anthropic/Gemini-via-OR need `reasoning_details[]` with thought signatures, which Kai does not send | [openrouter.ai/docs/guides/best-practices/reasoning-tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens) |
+| OpenRouter | **Preserved** | Canonical `reasoning`; `reasoning_content` is a documented alias. Kai also round-trips the opaque `reasoning_details[]` array required to retain Anthropic/Gemini thought signatures across tool calls | [openrouter.ai/docs/guides/best-practices/reasoning-tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens) |
 | LongCat | **Tolerated (undocumented)** | Schema documents `role` + `content` only; field is passed through silently | [longcat.chat/platform/docs/APIDocs.html](https://longcat.chat/platform/docs/APIDocs.html) |
 | Venice AI | **Tolerated (undocumented)** | Pass-through policy: "Request fields not listed may be passed through but are not validated" | [docs.venice.ai](https://docs.venice.ai) |
 | MiniMax M2 | **Tolerated but wrong mechanism** | Native mode expects `<think>...</think>` inside `content`; split mode expects `reasoning_details`. Top-level `reasoning_content` is undocumented and likely ignored | [platform.minimax.io/docs/guides/text-m2-function-call](https://platform.minimax.io/docs/guides/text-m2-function-call) |
@@ -35,13 +35,13 @@ Behavior of each provider when an `assistant`-role message with prior `tool_call
 
 ## What Kai does today
 
-Kai gates the field on `Service.reasoningRequestMode` (`NONE` or `REASONING_CONTENT`). When `REASONING_CONTENT` is set and the prior assistant turn carried `tool_calls`, Kai emits the field on the next request.
+Kai gates outgoing reasoning fields on `Service.reasoningRequestMode`: `NONE`, `REASONING_CONTENT`, or `REASONING_CONTENT_AND_DETAILS`. The string is emitted in both reasoning-enabled modes when the prior assistant turn carried `tool_calls`; the opaque details array is emitted only in the OpenRouter-specific mode.
 
-Services currently set to `REASONING_CONTENT`: DeepSeek, OpenRouter, LongCat, Venice, Moonshot, Z.AI, Z.AI Coding Plan, MiniMax, Fireworks, OpenCode.
+OpenRouter alone uses `REASONING_CONTENT_AND_DETAILS`. Services currently set to `REASONING_CONTENT`: DeepSeek, LongCat, Venice, Moonshot, Z.AI, Z.AI Coding Plan, MiniMax, Fireworks, OpenCode.
 
 All other services use the default `NONE` (the field is stripped on send). This is the safe default — any service we don't yet have evidence about will not regress.
 
-The chain-of-thought is preserved on `History.reasoningContent` regardless of the wire-side decision so the UI can render thinking traces independently of what gets transmitted on the next request. This applies to assistant turns received over the OpenAI-compatible path; the Anthropic and Gemini paths have their own thinking handling and do not currently populate this field. Capture happens going forward — conversations saved before the persistence support was added will not retroactively gain reasoning content on reload.
+The readable chain-of-thought is preserved on `History.reasoningContent` regardless of the wire-side decision so the UI can render thinking traces independently of what gets transmitted on the next request. OpenRouter's provider-specific items stay unmodified on `History.reasoningDetails`. Both fields, the assistant tool-call envelope, and matching tool-result IDs are persisted, so reasoning continuity also survives an app restart. This applies to assistant turns received over the OpenAI-compatible path; the native Anthropic and Gemini paths have their own thinking handling. Capture happens going forward — older saved conversations cannot retroactively gain reasoning data.
 
 ## Display in chat UI
 
@@ -53,7 +53,6 @@ Reasoning is only visible on messages captured after persistence support landed,
 
 Documented here so future work has a starting point. None of these are bugs today; they are fidelity improvements:
 
-- **OpenRouter `reasoning_details[]`** — needed to preserve thought signatures for Anthropic and Gemini models routed via OpenRouter. Without them, those models lose continuity across tool calls.
 - **MiniMax M2 native mode** — should embed `<think>...</think>` inside `content` rather than (or in addition to) sending a top-level field; currently the field is silently ignored.
 - **MiniMax M2 split mode** — alternative path uses `reasoning_details` instead.
 - **Z.AI standard `clear_thinking: false`** — without this paired request flag, Preserved Thinking is off and our echo is a no-op.
@@ -68,11 +67,11 @@ Adding any of these means either widening `ReasoningRequestMode` (new enum value
 | File | Purpose |
 |---|---|
 | `composeApp/src/commonMain/.../data/Service.kt` | `ReasoningRequestMode` enum + per-service mode assignment |
-| `composeApp/src/commonMain/.../ui/chat/ChatUiState.kt` | `History.toGroqMessageDto()` — gates emission of `reasoning_content` based on mode |
+| `composeApp/src/commonMain/.../ui/chat/ChatUiState.kt` | `History.toGroqMessageDto()` — gates emission of `reasoning_content` and opaque `reasoning_details` based on mode |
 | `composeApp/src/commonMain/.../data/RemoteDataRepository.kt` | `buildOpenAIMessages()` — passes `Service.reasoningRequestMode` into the DTO mapper |
-| `composeApp/src/commonMain/.../network/dtos/openaicompatible/OpenAICompatibleChatRequestDto.kt` | Request DTO with `@SerialName("reasoning_content")` on assistant messages |
-| `composeApp/src/commonMain/.../network/dtos/openaicompatible/OpenAICompatibleChatResponseDto.kt` | Response DTO; reads `reasoning_content` and `reasoning` and normalizes to `effectiveReasoning` |
+| `composeApp/src/commonMain/.../network/dtos/openaicompatible/OpenAICompatibleChatRequestDto.kt` | Request DTO with string reasoning plus opaque `reasoning_details` on assistant messages |
+| `composeApp/src/commonMain/.../network/dtos/openaicompatible/OpenAICompatibleChatResponseDto.kt` | Response DTO; reads string reasoning and opaque `reasoning_details` without interpreting provider-specific members |
 | `composeApp/src/commonTest/.../ui/chat/ToGroqMessageDtoReasoningTest.kt` | Guards the per-mode emission behavior |
-| `composeApp/src/commonMain/.../data/Conversation.kt` | `Conversation.Message.reasoningContent` — persisted reasoning trace for round-tripping across app restarts |
+| `composeApp/src/commonMain/.../data/Conversation.kt` | Persists reasoning fields, assistant tool calls, and matching tool-result IDs for round-tripping across app restarts |
 | `composeApp/src/commonMain/.../ui/chat/composables/BotMessage.kt` | Renders the dim-blockquote reasoning section above the answer when `reasoningContent` is supplied |
 | `composeApp/src/commonMain/.../ui/chat/ChatScreen.kt` | Groups all reasoning segments in a response under the answer-bearing assistant message; renders standalone thinking-only bubbles for in-flight turns |

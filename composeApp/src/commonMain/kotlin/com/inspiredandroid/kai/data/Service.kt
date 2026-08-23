@@ -69,8 +69,8 @@ enum class ReasoningRequestMode {
      * field by LongCat, Venice, MiniMax.
      *
      * See `docs/features/reasoning.md` for the authoritative per-provider matrix
-     * and known fidelity gaps (`reasoning_details`, `<think>`-in-content, paired
-     * flags like `clear_thinking` and `reasoning_history`).
+     * and known fidelity gaps (`<think>`-in-content and paired flags like
+     * `clear_thinking` and `reasoning_history`).
      */
     REASONING_CONTENT,
 
