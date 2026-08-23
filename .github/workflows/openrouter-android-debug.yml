@@ -60,10 +60,25 @@ jobs:
       - name: Build FOSS debug APK
         run: ./gradlew :androidApp:assembleFossDebug --no-daemon --stacktrace
 
+      - name: Verify standalone OpenRouter APK identity
+        run: |
+          source_apk="androidApp/build/outputs/apk/foss/debug/androidApp-foss-debug.apk"
+          application_id="$(
+            "$ANDROID_SDK_ROOT/build-tools/36.0.0/aapt2" dump badging "$source_apk" \
+              | sed -n "s/^package: name='\([^']*\)'.*/\1/p"
+          )"
+          application_label="$(
+            "$ANDROID_SDK_ROOT/build-tools/36.0.0/aapt2" dump badging "$source_apk" \
+              | sed -n "s/^application-label:'\(.*\)'/\1/p"
+          )"
+          test "$application_id" = "com.inspiredandroid.kai.openrouter"
+          test "$application_label" = "Kai 9000 OpenRouter"
+          cp "$source_apk" "androidApp/build/outputs/apk/foss/debug/kai-openrouter-foss-debug.apk"
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: kai-openrouter-debug-apk
-          path: androidApp/build/outputs/apk/foss/debug/androidApp-foss-debug.apk
+          name: kai-openrouter-standalone-debug-apk
+          path: androidApp/build/outputs/apk/foss/debug/kai-openrouter-foss-debug.apk
           if-no-files-found: error
           retention-days: 14

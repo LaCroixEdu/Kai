@@ -62,6 +62,11 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            applicationIdSuffix = ".openrouter"
+            versionNameSuffix = "-openrouter"
+            resValue("string", "app_name", "Kai 9000 OpenRouter")
+        }
         getByName("release") {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "../composeApp/proguard-rules.pro")
