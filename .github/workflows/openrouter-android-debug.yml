@@ -1,0 +1,56 @@
+name: OpenRouter Android Debug
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/openrouter-reasoning-details
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openrouter-android-debug-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    name: Test and build FOSS debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK components
+        run: sdkmanager "platforms;android-37" "build-tools;36.0.0" "ndk;29.0.14206865"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      - name: Run desktop tests
+        run: ./gradlew :composeApp:desktopTest --no-daemon --stacktrace
+
+      - name: Build FOSS debug APK
+        run: ./gradlew :androidApp:assembleFossDebug --no-daemon --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: kai-openrouter-debug-apk
+          path: androidApp/build/outputs/apk/foss/debug/androidApp-foss-debug.apk
+          if-no-files-found: error
+          retention-days: 14
