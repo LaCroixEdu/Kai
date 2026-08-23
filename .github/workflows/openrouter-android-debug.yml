@@ -38,14 +38,14 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
-      - name: Run desktop tests
-        run: ./gradlew :composeApp:desktopTest --no-daemon --stacktrace
-
       - name: Install Android SDK components
         run: |
           sdkmanager --channel=3 "cmdline-tools;latest"
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --channel=3 \
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest-2/bin/sdkmanager" --channel=3 \
             "platforms;android-37" "build-tools;36.0.0" "ndk;29.0.14206865"
+
+      - name: Run desktop tests
+        run: ./gradlew :composeApp:desktopTest --no-daemon --stacktrace
 
       - name: Build FOSS debug APK
         run: ./gradlew :androidApp:assembleFossDebug --no-daemon --stacktrace
