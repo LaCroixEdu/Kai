@@ -4,7 +4,7 @@
 
 **Goal:** Preserve OpenRouter `reasoning_details[]` through Kai's agentic tool loop and produce a tested Android debug APK.
 
-**Architecture:** Keep the OpenAI-compatible payload opaque by storing it as `JsonArray?`. Extend provider gating with an OpenRouter-only mode that emits both the existing reasoning string and the opaque details, then thread the field through response DTO, loop result, `History`, and persisted `Conversation.Message` without changing other providers.
+**Architecture:** Keep the OpenAI-compatible payload opaque by storing it as `JsonArray?`. Extend provider gating with an OpenRouter-only mode that emits both the existing reasoning string and the opaque details, then thread the field through response DTO, loop result, `History`, and persisted `Conversation.Message`. Persist the minimal tool-call envelope and tool-result IDs alongside the details so a restored conversation can reconstruct the original OpenAI-compatible message sequence without changing other providers.
 
 **Tech Stack:** Kotlin Multiplatform, kotlinx.serialization JSON, Compose, Gradle 9/AGP 9.3.1, JDK 21, GitHub Actions.
 
@@ -114,27 +114,27 @@ Run `./gradlew :composeApp:desktopTest --tests '*OpenRouterReasoningDetailsRound
 
 **Interfaces:**
 - Consumes: `History.reasoningDetails`.
-- Produces: backward-compatible `Conversation.Message.reasoningDetails: JsonArray?`.
+- Produces: backward-compatible `Conversation.Message.reasoningDetails: JsonArray?`, persisted assistant tool calls, and persisted tool-result IDs.
 
 - [ ] **Step 1: Write persistence tests first**
 
-Add one test that serializes and deserializes a message containing an opaque two-element array and asserts exact equality. Add one legacy-input assertion that missing `reasoningDetails` decodes as `null`.
+Add one test that serializes and deserializes an assistant tool-call message containing an opaque two-element array and asserts exact equality for the array and tool-call envelope. Include its matching tool result and assert `toolCallId`/`toolName` survive. Add one legacy-input assertion that missing new fields decodes as `null`.
 
 - [ ] **Step 2: Verify RED**
 
-Push the tests alone. Expected CI result: FAIL because `Conversation.Message.reasoningDetails` does not exist.
+Push the tests alone. Expected CI result: FAIL because `Conversation.Message.reasoningDetails`, `toolCalls`, and `toolCallId` do not exist.
 
 - [ ] **Step 3: Add backward-compatible storage**
 
-Add `@EncodeDefault(EncodeDefault.Mode.NEVER) val reasoningDetails: JsonArray? = null` after `reasoningContent`.
+Add a serializable `Conversation.ToolCall` value with `id`, `name`, and `arguments`. Add optional `toolCallId`, `toolName`, `toolCalls`, and `@EncodeDefault(EncodeDefault.Mode.NEVER) val reasoningDetails: JsonArray? = null` fields to `Conversation.Message`. Defaults must keep legacy JSON compatible.
 
 - [ ] **Step 4: Map save and load**
 
-Copy `History.reasoningDetails` into `Conversation.Message` in `saveCurrentConversation`, and restore it in `loadConversation`.
+Copy `History.reasoningDetails`, `toolCallId`, `toolName`, and mapped tool calls into `Conversation.Message` in `saveCurrentConversation`; restore the same values and rebuild `ToolCallInfo` entries in `loadConversation`.
 
 - [ ] **Step 5: Verify GREEN**
 
-Run the focused persistence test and full desktop test suite. Expected: PASS.
+Run the focused persistence test, then build OpenAI messages from the restored assistant/tool pair and assert it still contains the exact `reasoning_details`. Run the full desktop test suite. Expected: PASS.
 
 ### Task 5: Update feature documentation and regression matrix
 
@@ -182,4 +182,3 @@ The debug APK uses application ID `com.inspiredandroid.kai` and a debug signing 
 - [ ] **Step 4: Final verification**
 
 Review the branch diff for unrelated changes and secrets, then map every acceptance criterion to fresh test/Actions evidence.
-
