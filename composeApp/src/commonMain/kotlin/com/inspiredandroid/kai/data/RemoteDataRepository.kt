@@ -36,6 +36,7 @@ import com.inspiredandroid.kai.network.ServiceCredentials
 import com.inspiredandroid.kai.network.UnsupportedFileTypeException
 import com.inspiredandroid.kai.network.dtos.anthropic.extractText
 import com.inspiredandroid.kai.network.dtos.gemini.extractText
+import com.inspiredandroid.kai.network.dtos.openaicompatible.OpenAICompatibleChatRequestDto
 import com.inspiredandroid.kai.network.dtos.openaicompatible.extractInlineToolCalls
 import com.inspiredandroid.kai.network.toUiError
 import com.inspiredandroid.kai.network.tools.Tool
@@ -101,6 +102,89 @@ private const val MAX_HEARTBEAT_MESSAGES = 50
 private const val ESTIMATED_CHARS_PER_TOKEN = 4
 private const val COMPACTION_THRESHOLD = 0.7 // Compact when history exceeds 70% of context window
 private const val COMPACTION_KEEP_RECENT = 4 // Number of recent user exchanges to keep verbatim
+
+internal fun estimateOpenAIMessageChars(msg: OpenAICompatibleChatRequestDto.Message): Int {
+    val contentChars = when (val content = msg.content) {
+        is JsonArray -> {
+            // Vision messages: only count text parts, not base64 image data.
+            content.sumOf { element ->
+                val obj = element as? JsonObject
+                val type = (obj?.get("type") as? JsonPrimitive)?.content
+                if (type == "text") {
+                    (obj["text"] as? JsonPrimitive)?.content?.length ?: 0
+                } else {
+                    100 // Fixed small cost for image references.
+                }
+            }
+        }
+
+        is JsonPrimitive -> content.content.length
+        else -> content?.toString()?.length ?: 0
+    }
+    val toolCallChars = msg.tool_calls?.sumOf { call ->
+        call.id.length +
+            call.type.length +
+            call.function.name.length +
+            JsonPrimitive(call.function.arguments).toString().length
+    } ?: 0
+
+    return contentChars +
+        msg.role.length +
+        toolCallChars +
+        (msg.tool_call_id?.length ?: 0) +
+        (msg.reasoningContent?.let { JsonPrimitive(it).toString().length } ?: 0) +
+        (msg.reasoningDetails?.toString()?.length ?: 0)
+}
+
+/**
+ * Trims messages to fit within the estimated context window by dropping oldest messages
+ * (keeping the system prompt and most recent messages).
+ */
+internal fun trimOpenAIMessagesForContext(
+    messages: List<OpenAICompatibleChatRequestDto.Message>,
+    contextWindowTokens: Int = ModelCatalog.DEFAULT_CONTEXT_WINDOW_TOKENS,
+): List<OpenAICompatibleChatRequestDto.Message> {
+    val maxChars = contextWindowTokens * ESTIMATED_CHARS_PER_TOKEN
+    val totalChars = messages.sumOf { estimateOpenAIMessageChars(it) }
+    if (totalChars <= maxChars) return messages
+
+    // Keep system prompt (first message if role is "system") and trim from oldest non-system.
+    val systemMessages = messages.takeWhile { it.role == "system" }
+    val nonSystemMessages = messages.drop(systemMessages.size)
+
+    val systemChars = systemMessages.sumOf { estimateOpenAIMessageChars(it) }
+    val availableChars = maxChars - systemChars
+
+    // Keep an assistant tool-call turn together with all tool responses that follow it.
+    val groups = mutableListOf<List<OpenAICompatibleChatRequestDto.Message>>()
+    var index = 0
+    while (index < nonSystemMessages.size) {
+        val msg = nonSystemMessages[index]
+        if (msg.role == "assistant" && !msg.tool_calls.isNullOrEmpty()) {
+            var end = index + 1
+            while (end < nonSystemMessages.size && nonSystemMessages[end].role == "tool") {
+                end++
+            }
+            groups.add(nonSystemMessages.subList(index, end).toList())
+            index = end
+        } else {
+            groups.add(listOf(msg))
+            index++
+        }
+    }
+
+    // Keep whole groups from the end until we exceed the budget.
+    val kept = mutableListOf<OpenAICompatibleChatRequestDto.Message>()
+    var usedChars = 0
+    for (group in groups.asReversed()) {
+        val groupChars = group.sumOf { estimateOpenAIMessageChars(it) }
+        if (usedChars + groupChars > availableChars) break
+        kept.addAll(0, group)
+        usedChars += groupChars
+    }
+
+    return systemMessages + kept
+}
 
 // Explicit allowlist of tools exposed to the on-device (LiteRT) model. We use a
 // hardcoded name list rather than a structural filter because small Gemma models hit
@@ -1031,7 +1115,7 @@ class RemoteDataRepository(
         val declaredToolNames = tools.map { it.schema.name }.toSet()
         val strategy = object : ToolLoopStrategy {
             override suspend fun chat(history: List<History>, systemPrompt: String?): LoopChatResult {
-                val msgs = trimMessagesForContext(buildOpenAIMessages(service, history, systemPrompt, credentials.modelId, declaredToolNames), contextWindowTokens)
+                val msgs = trimOpenAIMessagesForContext(buildOpenAIMessages(service, history, systemPrompt, credentials.modelId, declaredToolNames), contextWindowTokens)
                 val response = retryApiCall {
                     requests.openAICompatibleChat(service, credentials, msgs, tools).getOrThrow()
                 }
@@ -1064,7 +1148,7 @@ class RemoteDataRepository(
 
             override suspend fun bailout(history: List<History>, systemPrompt: String?, reason: BailoutReason): String {
                 // Bailout sends no tools — strip historic tool_calls to satisfy strict validators.
-                val msgs = trimMessagesForContext(buildOpenAIMessages(service, history, systemPrompt, credentials.modelId, declaredToolNames = emptySet()), contextWindowTokens)
+                val msgs = trimOpenAIMessagesForContext(buildOpenAIMessages(service, history, systemPrompt, credentials.modelId, declaredToolNames = emptySet()), contextWindowTokens)
                 return makeFinalCallWithoutTools(service, credentials, msgs, reason)
             }
         }
@@ -1343,81 +1427,6 @@ class RemoteDataRepository(
             }
         }
         throw lastException!!
-    }
-
-    private fun estimateMessageChars(msg: com.inspiredandroid.kai.network.dtos.openaicompatible.OpenAICompatibleChatRequestDto.Message): Int {
-        val contentChars = when (val content = msg.content) {
-            is JsonArray -> {
-                // Vision messages: only count text parts, not base64 image data
-                content.sumOf { element ->
-                    val obj = element as? JsonObject
-                    val type = (obj?.get("type") as? JsonPrimitive)?.content
-                    if (type == "text") {
-                        (obj["text"] as? JsonPrimitive)?.content?.length ?: 0
-                    } else {
-                        100 // Fixed small cost for image references
-                    }
-                }
-            }
-
-            is JsonPrimitive -> content.content.length
-
-            else -> content?.toString()?.length ?: 0
-        }
-        return contentChars + msg.role.length
-    }
-
-    /**
-     * Trims messages to fit within the estimated context window by dropping oldest messages
-     * (keeping the system prompt and most recent messages).
-     */
-    private fun trimMessagesForContext(
-        messages: List<com.inspiredandroid.kai.network.dtos.openaicompatible.OpenAICompatibleChatRequestDto.Message>,
-        contextWindowTokens: Int = ModelCatalog.DEFAULT_CONTEXT_WINDOW_TOKENS,
-    ): List<com.inspiredandroid.kai.network.dtos.openaicompatible.OpenAICompatibleChatRequestDto.Message> {
-        val maxChars = contextWindowTokens * ESTIMATED_CHARS_PER_TOKEN
-        val totalChars = messages.sumOf { estimateMessageChars(it) }
-        if (totalChars <= maxChars) return messages
-
-        // Keep system prompt (first message if role is "system") and trim from oldest non-system
-        val systemMessages = messages.takeWhile { it.role == "system" }
-        val nonSystemMessages = messages.drop(systemMessages.size)
-
-        val systemChars = systemMessages.sumOf { estimateMessageChars(it) }
-        val availableChars = maxChars - systemChars
-
-        // Group each assistant tool-call turn together with the tool responses that follow it so
-        // trimming never strands one without the other. Strict OpenAI-compatible providers (e.g.
-        // DeepSeek via OpenCode Zen) reject an assistant `tool_calls` message that isn't followed
-        // by its tool responses, and a `tool` message without a preceding `tool_calls`.
-        val groups = mutableListOf<List<com.inspiredandroid.kai.network.dtos.openaicompatible.OpenAICompatibleChatRequestDto.Message>>()
-        var index = 0
-        while (index < nonSystemMessages.size) {
-            val msg = nonSystemMessages[index]
-            if (msg.role == "assistant" && !msg.tool_calls.isNullOrEmpty()) {
-                var end = index + 1
-                while (end < nonSystemMessages.size && nonSystemMessages[end].role == "tool") {
-                    end++
-                }
-                groups.add(nonSystemMessages.subList(index, end).toList())
-                index = end
-            } else {
-                groups.add(listOf(msg))
-                index++
-            }
-        }
-
-        // Keep whole groups from the end until we exceed the budget.
-        val kept = mutableListOf<com.inspiredandroid.kai.network.dtos.openaicompatible.OpenAICompatibleChatRequestDto.Message>()
-        var usedChars = 0
-        for (group in groups.asReversed()) {
-            val groupChars = group.sumOf { estimateMessageChars(it) }
-            if (usedChars + groupChars > availableChars) break
-            kept.addAll(0, group)
-            usedChars += groupChars
-        }
-
-        return systemMessages + kept
     }
 
     /**
