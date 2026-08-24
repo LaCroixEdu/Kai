@@ -107,6 +107,15 @@ class LinuxInstaller(private val paths: LinuxPaths) {
         if (spec !is AlpineSpec) {
             val result = launcher.execute(updateCommand, timeoutSeconds = UPDATE_TIMEOUT_SECONDS)
             check(result.success) { "`$updateCommand` failed: ${result.failureDetail()}" }
+            // apt-get update may return 0 after every repository failed (or when no source was
+            // configured). Do not continue into an installation that can only report a generic
+            // "Unable to locate package" list; require at least one downloaded Packages index.
+            val hasPackageIndex = File(paths.rootfsDir, "var/lib/apt/lists")
+                .walkTopDown()
+                .any { it.isFile && it.name.contains("Packages") }
+            check(hasPackageIndex) {
+                "`$updateCommand` produced no package index: ${result.failureDetail()}"
+            }
             return
         }
         var lastDetail = ""

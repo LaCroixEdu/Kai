@@ -23,6 +23,11 @@ private val ALPINE_MIRRORS = listOf(
 private const val LXC_INDEX = "https://images.linuxcontainers.org/meta/1.0/index-user"
 private const val LXC_BASE = "https://images.linuxcontainers.org"
 private const val DEBIAN_RELEASE = "bookworm"
+private val DEBIAN_REPOSITORIES = """
+    deb http://deb.debian.org/debian $DEBIAN_RELEASE main contrib
+    deb http://deb.debian.org/debian $DEBIAN_RELEASE-updates main contrib
+    deb http://deb.debian.org/debian-security $DEBIAN_RELEASE-security main contrib
+""".trimIndent() + "\n"
 
 /**
  * The per-distribution facts the shared installer and proot launcher need:
@@ -144,6 +149,14 @@ object DebianSpec : DistroSpec {
     override fun configure(rootfsDir: File) {
         TarExtractor.makeWritable(rootfsDir)
         TarExtractor.writeResolvConf(rootfsDir)
+        // LXC's image build uses these repositories, but the generated rootfs does not
+        // guarantee that its build-time sources.list survives into every published tarball.
+        // apt-get update exits successfully when no sources are configured, leaving the next
+        // install to fail with the misleading "Unable to locate package" for every package.
+        // Write the Bookworm repositories explicitly before the first apt invocation.
+        val aptDir = File(rootfsDir, "etc/apt")
+        aptDir.mkdirs()
+        File(aptDir, "sources.list").writeText(DEBIAN_REPOSITORIES)
         // apt and dpkg assume these exist; an LXC image ships some of them empty
         // and the tar extractor skips empty directories it never saw an entry for.
         listOf(

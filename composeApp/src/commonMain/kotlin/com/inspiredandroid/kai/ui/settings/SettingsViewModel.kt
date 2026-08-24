@@ -811,6 +811,9 @@ class SettingsViewModel(
         // ConversationStorage's in-memory flow — refresh it so imported chats appear
         // without an app restart.
         dataRepository.loadConversations()
+        if (ImportSection.CONVERSATIONS in sections) {
+            dataRepository.startNewChat()
+        }
         _state.value = buildFullState().copy(currentTab = currentTab)
         checkAllConnections()
         connectEnabledMcpServers()

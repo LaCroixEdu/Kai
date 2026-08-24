@@ -360,6 +360,10 @@ fun AppSettings.importFromJson(
             } else {
                 setConversationsJson("")
             }
+            // Keep imported conversations in History without selecting the newest one as
+            // the first post-import request context on clean installs.
+            setCurrentConversationId(null)
+            markCurrentConversationMigrated()
         } catch (_: Exception) {
             errors++
         }

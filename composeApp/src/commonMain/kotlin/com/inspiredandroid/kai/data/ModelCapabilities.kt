@@ -87,10 +87,10 @@ internal val TEXT_ONLY_IMAGE_MODELS: Set<String> = setOf(
  */
 internal fun modelSupportsImages(modelId: String): Boolean {
     val key = modelId.substringAfterLast('/').lowercase()
-    // DeepSeek's chat models are all text-only; the lone vision family is DeepSeek-VL, which
-    // carries "vl" in the id. Match the text family by prefix so this also covers DeepSeek via
-    // aggregators and future ids, while leaving DeepSeek-VL recognised as multimodal.
-    if (key.startsWith("deepseek") && !key.contains("vl")) return false
+    // DeepSeek text models are text-only, but multimodal model ids are not limited to the
+    // historical DeepSeek-VL family (for example, deepseek-v4-flash-vision-exp). Keep both
+    // explicit multimodal naming conventions available to the attachment picker.
+    if (key.startsWith("deepseek") && !key.contains("vl") && !key.contains("vision")) return false
     return key !in TEXT_ONLY_IMAGE_MODELS
 }
 

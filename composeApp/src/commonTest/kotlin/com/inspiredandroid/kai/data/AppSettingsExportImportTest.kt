@@ -762,6 +762,7 @@ class AppSettingsExportImportTest {
         val exported = appSettings.exportToJson(toolIds, conversations = convData.conversations)
 
         val target = createAppSettings()
+        target.setCurrentConversationId("previous-chat")
         target.importFromJson(exported, toolIds)
 
         val imported = SharedJson.decodeFromString<ConversationsData>(target.getConversationsJson()!!)
@@ -771,6 +772,8 @@ class AppSettingsExportImportTest {
         assertEquals(2, imported.conversations[0].messages.size)
         assertEquals("conv2", imported.conversations[1].id)
         assertEquals(Conversation.TYPE_HEARTBEAT, imported.conversations[1].type)
+        assertNull(target.getCurrentConversationId())
+        assertTrue(target.isCurrentConversationMigrated())
     }
 
     @Test
